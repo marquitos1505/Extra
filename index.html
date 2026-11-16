@@ -9,6 +9,9 @@
 <!-- Chart.js cargado por CDN para la gráfica interactiva de evolución -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
+<!-- Supabase JS v2 por CDN: SDK oficial para la base de datos en la nube -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 <style>
 /* ============================================================
    1. VARIABLES Y RESET
@@ -25,9 +28,43 @@
   --acento-hover: #059669;
   --radio:        14px;      /* Radio de bordes de tarjetas */
   --sombra:       0 1px 3px rgba(17, 24, 39, .05);
+  /* Colores internos de la gráfica (ejes y cuadrícula) según el tema */
+  --grafico-grid:  #E5E7EB;
+  --grafico-ticks: #6B7280;
+  /* Flecha SVG del selector de categorías (se tiñe por tema) */
+  --flecha-select: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* ============================================================
+   MODO OSCURO: se activa con data-theme="dark" en <html>
+   ============================================================ */
+html[data-theme="dark"] {
+  --fondo:        #0B1220;   /* Fondo general azul noche */
+  --blanco:       #151E2E;   /* Fondo de tarjetas */
+  --texto:        #F3F4F6;
+  --texto-suave:  #9CA3AF;
+  --borde:        #263244;
+  --acento:       #10B981;
+  --acento-hover: #34D399;
+  --sombra:       0 1px 3px rgba(0, 0, 0, .45);
+  --grafico-grid:  #263244;
+  --grafico-ticks: #9CA3AF;
+  --flecha-select: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%239CA3AF' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* Sin desplazamiento horizontal en ningún tamaño de pantalla;
+   el desplazamiento vertical queda siempre habilitado. */
+html, body {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* 16px evita que los navegadores móviles hagan zoom automático
+   al tocar un campo del formulario. */
+input, select { font-size: 16px; }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -63,6 +100,25 @@ header {
   letter-spacing: -0.02em;
 }
 
+/* Contenedor derecho del nav: píldora + botón de tema */
+.nav-derecha { display: flex; align-items: center; gap: 10px; }
+
+/* Botón discreto para alternar Modo Claro / Oscuro */
+.btn-tema {
+  width: 36px; height: 36px;
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  background: var(--blanco);
+  color: var(--texto);
+  font-size: .95rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .2s ease, border-color .2s ease;
+}
+.btn-tema:hover { background: var(--fondo); }
+
 /* Selector de vista estilo píldora (Personal / Hogar) */
 .pill {
   display: flex;
@@ -83,8 +139,8 @@ header {
   transition: all .2s ease;
 }
 .pill button.activo {
-  background: var(--blanco);
-  color: var(--texto);
+  background: var(--acento);   /* Acento principal para que destaque */
+  color: #ffffff;              /* Texto blanco sobre el acento */
   box-shadow: var(--sombra);
 }
 
@@ -95,7 +151,10 @@ header {
 main {
   max-width: 960px;
   margin: 0 auto;
-  padding: 20px 16px 110px;  /* Espacio extra abajo por el botón flotante */
+  padding: 20px 16px;
+  /* Margen inferior amplio: evita que la tarjeta de Movimientos quede
+     tapada por el botón flotante o por las barras del navegador móvil */
+  padding-bottom: calc(130px + env(safe-area-inset-bottom));
 }
 .layout { display: grid; gap: 20px; }
 
@@ -175,18 +234,24 @@ main {
   transition: all .2s ease;
 }
 .filtros-tiempo button.activo {
-  background: var(--texto);    /* Uso neutro/oscuro, no acento */
-  color: var(--blanco);
+  background: var(--acento);    /* Uso neutro/oscuro, no acento */
+  color: #ffffff;              /* Blanco puro también en Modo Oscuro */
 }
 .filtros select {
   font: inherit;
-  font-size: .8rem;
-  padding: 8px 12px;
+  font-size: 16px;                /* Evita el zoom automático en móviles */
+  padding: 8px 40px 8px 12px;     /* Padding derecho amplio para la flecha */
   border: 1px solid var(--borde);
   border-radius: 999px;
-  background: var(--blanco);
+  background-color: var(--blanco);
   color: var(--texto);
   cursor: pointer;
+  appearance: none;               /* Quita la flecha nativa del navegador */
+  -webkit-appearance: none;
+  background-image: var(--flecha-select);  /* Flecha SVG personalizada */
+  background-repeat: no-repeat;
+  background-position: right 14px center;  /* Centrada verticalmente */
+  background-size: 12px 8px;
 }
 
 /* ============================================================
@@ -277,14 +342,15 @@ main {
    ============================================================ */
 .btn-anadir {
   position: fixed;
-  bottom: 22px;
+  /* Respeta las barras inferiores del sistema en dispositivos móviles */
+  bottom: calc(22px + env(safe-area-inset-bottom));
   right: 22px;
   z-index: 40;
   width: 58px; height: 58px;
   border: none;
   border-radius: 50%;          /* Círculo perfecto */
   background: var(--acento);
-  color: var(--blanco);
+  color: #ffffff;              /* Blanco puro también en Modo Oscuro */
   font: inherit;
   font-size: 1.8rem;
   font-weight: 400;
@@ -324,11 +390,12 @@ main {
   background: var(--blanco);
   border-radius: 20px 20px 0 0;
   width: 100%;
-  max-width: 440px;
+  max-width: min(440px, 92vw);  /* Nunca más ancho que 92vw */
   padding: 22px 20px 30px;
   transform: translateY(24px); /* Animación de entrada hacia arriba */
   transition: transform .25s ease;
-  max-height: 90vh;
+  max-height: 85vh;             /* Fallback para navegadores sin dvh */
+  max-height: 85dvh;            /* Alto relativo al viewport dinámico */
   overflow-y: auto;
 }
 .modal-fondo.abierta .modal { transform: translateY(0); }
@@ -362,7 +429,7 @@ main {
 .campo input, .campo select {
   width: 100%;
   font: inherit;
-  font-size: .92rem;
+  font-size: 16px;             /* Evita el zoom automático en móviles */
   padding: 11px 12px;
   border: 1px solid var(--borde);
   border-radius: 10px;
@@ -379,6 +446,16 @@ main {
 /* Fila de dos columnas: monto/fecha y tipo/categoría */
 .fila-doble { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
+/* En pantallas pequeñas pasa a una sola columna para que el selector
+   de fecha nunca sobresalga por el borde derecho */
+@media (max-width: 480px) {
+  .fila-doble {
+    grid-template-columns: 1fr;
+    width: 100%;
+    min-width: 0;
+  }
+}
+
 /* Botón de confirmación del modal (también acento) */
 .btn-guardar {
   width: 100%;
@@ -387,13 +464,14 @@ main {
   border: none;
   border-radius: 999px;
   background: var(--acento);
-  color: var(--blanco);
+  color: #ffffff;              /* Blanco puro también en Modo Oscuro */
   font: inherit;
   font-weight: 700;
   cursor: pointer;
   transition: background .2s ease;
 }
 .btn-guardar:hover { background: var(--acento-hover); }
+.btn-guardar:disabled { opacity: .6; cursor: wait; }
 </style>
 </head>
 <body>
@@ -403,10 +481,15 @@ main {
   <nav class="nav">
     <div class="logo">Extra</div>
 
-    <!-- Selector de vista estilo píldora -->
-    <div class="pill" id="selector-vista">
-      <button data-vista="personal" class="activo">Personal</button>
-      <button data-vista="hogar">Hogar</button>
+    <div class="nav-derecha">
+      <!-- Selector de vista estilo píldora -->
+      <div class="pill" id="selector-vista">
+        <button data-vista="personal" class="activo">Personal</button>
+        <button data-vista="hogar">Hogar</button>
+      </div>
+
+      <!-- Alternar Modo Claro / Oscuro (preferencia en localStorage) -->
+      <button class="btn-tema" id="btn-tema" onclick="alternarTema()" aria-label="Cambiar tema" title="Modo claro / oscuro">🌙</button>
     </div>
   </nav>
 </header>
@@ -506,22 +589,36 @@ main {
 
 <script>
 /* ============================================================
-   DATOS Y CONFIGURACIÓN INICIAL
+   1. CREDENCIALES DE SUPABASE
+   Se copian desde Project Settings → API del panel de Supabase.
+   ============================================================ */
+const SUPABASE_URL      = ""; // ← PEGÁ ACÁ LA URL DE TU PROYECTO (ej: "https://abcdefgh.supabase.co")
+const SUPABASE_ANON_KEY = ""; // ← PEGÁ ACÁ TU CLAVE PÚBLICA ANON (empieza con "eyJ...")
+
+// Cliente de Supabase inicializado SOLO cuando ambas constantes tienen
+// contenido; sin credenciales la interfaz y el modal siguen funcionando
+// sin errores (solo se avisa por consola).
+const supabaseClient = (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+/* ============================================================
+   2. DATOS Y CONFIGURACIÓN INICIAL
    ============================================================ */
 
 // Categorías oficiales (15)
 const CATEGORIAS = [
   "Cuentas y servicios", "Supermercado", "Comidas y bebidas",
-  "Créditos y financiación", "Deportes", "Educación", "Gaming",
-  "Indumentaria", "Mascotas", "Salud y cuidado personal",
-  "Suscripciones", "Tarjetas de crédito", "Alquiler", "Viajes", "Otros"
+  "Créditos y financiación", "Deportes", "Educación", "Alquiler",
+  "Mascotas", "Salud y cuidado personal", "Suscripciones",
+  "Tarjetas de crédito", "Viajes", "Compras", "Gaming", "Otros"
 ];
 
 // Emojis usados como icono/etiqueta de cada categoría
 const ICONOS = {
   "Cuentas y servicios": "🧾", "Supermercado": "🛒", "Comidas y bebidas": "🍔",
   "Créditos y financiación": "💳", "Deportes": "⚽", "Educación": "🎓",
-  "Gaming": "🎮", "Indumentaria": "👕", "Mascotas": "🐾",
+  "Gaming": "🎮", "Compras": "🛍️", "Mascotas": "🐾",
   "Salud y cuidado personal": "💊", "Suscripciones": "📺",
   "Tarjetas de crédito": "🏧", "Alquiler": "🏠", "Viajes": "✈️", "Otros": "📦"
 };
@@ -529,9 +626,9 @@ const ICONOS = {
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const DIAS  = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 
-// Estado (arreglo dinámico de gastos, persistido en localStorage)
-// Cada gasto: { id, monto, fecha (ISO), ts (creación), tipo, categoria, descripcion }
-let gastos    = cargarGastos();
+// Estado (arreglo dinámico de gastos, sincronizado con la tabla "gastos")
+// Cada registro: { id, monto, categoria, descripcion, tipo_gasto, fecha (YYYY-MM-DD) }
+let gastos    = [];               // Se llena con el SELECT inicial a Supabase
 let vista     = "personal";       // "personal" | "hogar"
 let periodo   = "mes";            // "hoy" | "semana" | "mes" | "anio"
 let filtroCat = "";               // "" = todas las categorías
@@ -549,13 +646,29 @@ function fmtFecha(iso) {
   return d + " " + MESES[+m - 1].toLowerCase();
 }
 
-// Carga/guardado del arreglo dinámico (la app inicia sin registros)
-function cargarGastos() {
-  try { return JSON.parse(localStorage.getItem("extra_gastos_v2")) || []; }
-  catch { return []; }
-}
-function guardarGastos() {
-  try { localStorage.setItem("extra_gastos_v2", JSON.stringify(gastos)); } catch {}
+// Marca de tiempo de creación (para el eje X del filtro "Hoy").
+// Los registros de Supabase pueden traer created_at; si no, devuelve null.
+const tsDe = g => g.ts || (g.created_at ? new Date(g.created_at).getTime() : null);
+
+/* ============================================================
+   SUPABASE: SELECT sobre la tabla "gastos"
+   ============================================================ */
+
+// Carga inicial y recargas: trae todos los registros ordenados por
+// "fecha" descendente, actualiza el arreglo de estado y renderiza
+// la lista y la gráfica.
+async function cargarGastos() {
+  if (!supabaseClient) { render(); return; }   // Sin credenciales: solo interfaz
+  const { data, error } = await supabase
+    .from("gastos")
+    .select("*")
+    .order("fecha", { ascending: false });
+  if (error) {
+    console.error("Error al cargar los gastos:", error.message);
+    return;
+  }
+  gastos = data || [];
+  render();                              // Refresca lista + gráfica
 }
 
 // Fecha de inicio del período seleccionado (para filtrar el arreglo)
@@ -575,7 +688,7 @@ function inicioPeriodo(p) {
 function gastosFiltrados() {
   const desde = inicioPeriodo(periodo);
   return gastos.filter(g =>
-    g.tipo === vista &&
+    g.tipo_gasto === vista &&
     g.fecha >= desde &&
     g.fecha <= hoyISO() &&
     (!filtroCat || g.categoria === filtroCat)
@@ -599,7 +712,8 @@ function construirSerie() {
     data = new Array(24).fill(0);
     filtrados.forEach(g => {
       if (g.fecha === hoyISO()) {
-        const h = g.ts ? new Date(g.ts).getHours() : 12;
+        const ts = tsDe(g);
+        const h = ts ? new Date(ts).getHours() : 12;
         data[h] += g.monto;
       }
     });
@@ -647,6 +761,10 @@ function construirSerie() {
 // Crea la gráfica una sola vez; luego solo se actualizan datos/etiquetas
 function crearGrafico() {
   const ctx = $("grafico-gastos").getContext("2d");
+  // Colores de ejes y cuadrícula tomados de las variables CSS del tema activo
+  const estilos    = getComputedStyle(document.documentElement);
+  const colorGrid  = estilos.getPropertyValue("--grafico-grid").trim()  || "#E5E7EB";
+  const colorTicks = estilos.getPropertyValue("--grafico-ticks").trim() || "#6B7280";
   chart = new Chart(ctx, {
     type: "line",
     data: { labels: [], datasets: [{
@@ -673,16 +791,16 @@ function crearGrafico() {
       scales: {
         y: {                             // Eje Y: escala de montos en dinero
           beginAtZero: true,
-          grid: { color: "#E5E7EB", drawBorder: false },
+          grid: { color: colorGrid, drawBorder: false },
           ticks: {
-            color: "#6B7280",
+            color: colorTicks,
             font: { size: 11 },
             callback: v => "$" + Number(v).toLocaleString("es-AR", { notation: "compact" })
           }
         },
         x: {                             // Eje X: línea temporal según filtro
           grid: { display: false },
-          ticks: { color: "#6B7280", font: { size: 11 }, maxRotation: 0, autoSkip: true }
+          ticks: { color: colorTicks, font: { size: 11 }, maxRotation: 0, autoSkip: true }
         }
       }
     }
@@ -724,7 +842,7 @@ function render() {
   }
   filtrados
     .slice()
-    .sort((a, b) => (b.ts || 0) - (a.ts || 0) || b.fecha.localeCompare(a.fecha))
+    .sort((a, b) => (tsDe(b) || 0) - (tsDe(a) || 0) || b.fecha.localeCompare(a.fecha))
     .forEach(g => {
       const item = document.createElement("div");
       item.className = "gasto";
@@ -735,7 +853,7 @@ function render() {
           '<div class="meta"><span class="cat">' + g.categoria + '</span><span>·</span><span>' + fmtFecha(g.fecha) + '</span></div>' +
         '</div>' +
         '<div class="gasto-monto">' + fmtMoneda(g.monto) + '</div>' +
-        // Botón de eliminación: remueve el objeto del arreglo dinámico
+        // Botón de eliminación: borra el registro en Supabase por su "id"
         '<button class="btn-eliminar" data-id="' + g.id + '" title="Eliminar" aria-label="Eliminar gasto">🗑️</button>';
       // textContent evita inyectar HTML del usuario
       item.querySelector(".descripcion").textContent = g.descripcion;
@@ -746,12 +864,20 @@ function render() {
 /* ============================================================
    ELIMINACIÓN DINÁMICA (delegación de eventos en la lista)
    ============================================================ */
-$("lista-gastos").addEventListener("click", e => {
+$("lista-gastos").addEventListener("click", async e => {
   const btn = e.target.closest(".btn-eliminar");
   if (!btn) return;
-  gastos = gastos.filter(g => g.id !== btn.dataset.id); // Remueve del arreglo
-  guardarGastos();
-  render();                                            // Refresca lista + gráfica
+  if (!supabaseClient) {
+    console.warn("Configurá SUPABASE_URL y SUPABASE_ANON_KEY para eliminar registros.");
+    return;
+  }
+  // DELETE real en Supabase filtrando por la columna "id"
+  const { error } = await supabaseClient.from("gastos").delete().eq("id", btn.dataset.id);
+  if (error) {
+    console.error("Error al eliminar el gasto:", error.message);
+    return;
+  }
+  await cargarGastos();   // Refresca lista + gráfica con los datos reales
 });
 
 /* ============================================================
@@ -809,30 +935,73 @@ function cerrarModalFondo(e) { if (e.target === $("modal-fondo")) cerrarModal();
 // Cierre con tecla Escape
 document.addEventListener("keydown", e => { if (e.key === "Escape") cerrarModal(); });
 
-/* --- Envío del formulario: inserta el nuevo objeto en el arreglo dinámico --- */
-$("form-gasto").addEventListener("submit", e => {
+/* --- Envío del formulario: INSERT del nuevo gasto en Supabase --- */
+$("form-gasto").addEventListener("submit", async e => {
   e.preventDefault(); // Actualiza la pantalla sin recargar la página
-  gastos.push({
-    id: Date.now() + "-" + Math.random().toString(36).slice(2, 7), // Identificador único
-    monto: parseFloat($("f-monto").value),
-    fecha: $("f-fecha").value,
-    ts: Date.now(),                       // Marca de tiempo (para el eje X de "Hoy")
-    tipo: $("f-tipo").value,
-    categoria: $("f-categoria").value,
-    descripcion: $("f-descripcion").value.trim()
-  });
-  guardarGastos();
-  e.target.reset();
-  cerrarModal();
-  render();
+  const btnGuardar = e.target.querySelector(".btn-guardar");
+  btnGuardar.disabled = true;            // Bloqueado mientras viaja la petición
+
+  try {
+    if (!supabaseClient) {
+      alert("Configurá SUPABASE_URL y SUPABASE_ANON_KEY al inicio del archivo para conectar la base de datos.");
+      return;
+    }
+    // INSERT en la tabla "gastos" con los campos oficiales
+    const { error } = await supabaseClient.from("gastos").insert({
+      monto:       parseFloat($("f-monto").value),   // numérico
+      categoria:   $("f-categoria").value,           // texto
+      descripcion: $("f-descripcion").value.trim(),  // texto
+      tipo_gasto:  $("f-tipo").value,                // "personal" | "hogar"
+      fecha:       $("f-fecha").value                // YYYY-MM-DD
+    });
+    if (error) throw error;
+
+    await cargarGastos();   // Recarga los datos reales desde Supabase
+    cerrarModal();
+    e.target.reset();       // Limpia el formulario
+  } catch (err) {
+    console.error("Error al guardar el gasto:", err.message);
+    alert("No se pudo guardar el gasto. Revisá la consola para más detalles.");
+  } finally {
+    btnGuardar.disabled = false;         // Siempre reactiva el botón
+  }
 });
+
+/* ============================================================
+   MODO CLARO / OSCURO
+   Alternancia con data-theme="dark" en <html>; la preferencia
+   se guarda en localStorage y Chart.js actualiza sus colores.
+   ============================================================ */
+let temaGuardado = "light";
+try { temaGuardado = localStorage.getItem("extra_tema") || "light"; } catch {}
+
+function aplicarTema(tema) {
+  document.documentElement.setAttribute("data-theme", tema);
+  $("btn-tema").textContent = tema === "dark" ? "☀️" : "🌙";
+  try { localStorage.setItem("extra_tema", tema); } catch {}
+  // Actualiza dinámicamente los colores de ejes y líneas de cuadrícula
+  if (chart) {
+    const estilos = getComputedStyle(document.documentElement);
+    chart.options.scales.y.grid.color  = estilos.getPropertyValue("--grafico-grid").trim()  || "#E5E7EB";
+    chart.options.scales.y.ticks.color = estilos.getPropertyValue("--grafico-ticks").trim() || "#6B7280";
+    chart.options.scales.x.ticks.color = estilos.getPropertyValue("--grafico-ticks").trim() || "#6B7280";
+    chart.update();
+  }
+}
+
+// Alterna entre Modo Claro y Modo Oscuro
+function alternarTema() {
+  const oscuro = document.documentElement.getAttribute("data-theme") === "dark";
+  aplicarTema(oscuro ? "light" : "dark");
+}
 
 /* ============================================================
    ARRANQUE
    ============================================================ */
 llenarCategorias();
+aplicarTema(temaGuardado);   // Restaura el tema guardado antes de dibujar
 crearGrafico();
-render();
+cargarGastos();              // SELECT inicial: puebla lista y gráfica
 </script>
 </body>
 </html>
