@@ -659,7 +659,7 @@ const tsDe = g => g.ts || (g.created_at ? new Date(g.created_at).getTime() : nul
 // la lista y la gráfica.
 async function cargarGastos() {
   if (!supabaseClient) { render(); return; }   // Sin credenciales: solo interfaz
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("gastos")
     .select("*")
     .order("fecha", { ascending: false });
