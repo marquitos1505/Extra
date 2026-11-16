@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<!-- Vista adaptada a móviles: clave para el enfoque Mobile First -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Extra — Control de Gastos</title>
+
+<!-- Chart.js cargado por CDN para la gráfica interactiva de evolución -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<style>
+/* ============================================================
+   1. VARIABLES Y RESET
+   Paleta monocromática con un acento esmeralda reservado
+   únicamente para el botón principal y el saldo total.
+   ============================================================ */
+:root {
+  --fondo:        #F9FAFB;   /* Fondo general gris muy claro */
+  --blanco:       #FFFFFF;   /* Fondo de tarjetas */
+  --texto:        #111827;   /* Texto principal (casi negro) */
+  --texto-suave:  #6B7280;   /* Texto secundario */
+  --borde:        #E5E7EB;   /* Bordes y divisores suaves */
+  --acento:       #10B981;   /* Verde esmeralda: SOLO acentos */
+  --acento-hover: #059669;
+  --radio:        14px;      /* Radio de bordes de tarjetas */
+  --sombra:       0 1px 3px rgba(17, 24, 39, .05);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--fondo);
+  color: var(--texto);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   2. HEADER / NAVEGACIÓN
+   ============================================================ */
+header {
+  background: var(--blanco);
+  border-bottom: 1px solid var(--borde);
+  position: sticky;      /* El header queda fijo al hacer scroll */
+  top: 0;
+  z-index: 50;
+}
+.nav {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 14px 16px;
+  display: flex;                 /* Título a la izquierda, píldora a la derecha */
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.logo {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Selector de vista estilo píldora (Personal / Hogar) */
+.pill {
+  display: flex;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  padding: 3px;
+}
+.pill button {
+  border: none;
+  background: transparent;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: .85rem;
+  font-weight: 500;
+  color: var(--texto-suave);
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.pill button.activo {
+  background: var(--blanco);
+  color: var(--texto);
+  box-shadow: var(--sombra);
+}
+
+/* ============================================================
+   3. CONTENIDO PRINCIPAL (una columna en móvil,
+      dos columnas en escritorio: panel + lista de gastos)
+   ============================================================ */
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 16px 110px;  /* Espacio extra abajo por el botón flotante */
+}
+.layout { display: grid; gap: 20px; }
+
+/* En escritorio: panel de resumen a la izquierda, lista a la derecha */
+@media (min-width: 720px) {
+  .layout { grid-template-columns: 340px 1fr; align-items: start; }
+}
+
+/* ---------- Panel de Resumen ---------- */
+.resumen-card {
+  background: var(--blanco);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 20px;
+}
+.resumen-card h2 {
+  font-size: .78rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--texto-suave);
+  margin-bottom: 6px;
+}
+/* El total grande usa el color de acento (única excepción del monocromo) */
+.total-gastado {
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--acento);
+}
+
+/* Marco de altura fija donde Chart.js dibuja la gráfica */
+.marco-grafico {
+  position: relative;
+  height: 220px;             /* Alto reservado para el lienzo de Chart.js */
+  margin-top: 18px;
+}
+/* Mensaje sutil que se superpone cuando no hay datos para graficar */
+.grafico-vacio {
+  position: absolute;
+  inset: 0;
+  display: none;             /* Se activa con JS */
+  align-items: center;
+  justify-content: center;
+  color: var(--texto-suave);
+  font-size: .85rem;
+  text-align: center;
+}
+.grafico-vacio.visible { display: flex; }
+
+/* ============================================================
+   4. FILTROS (tiempo + categoría)
+   ============================================================ */
+.filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.filtros-tiempo {
+  display: flex;
+  background: var(--blanco);
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  padding: 3px;
+  flex: 1;
+}
+.filtros-tiempo button {
+  flex: 1;                     /* Los 4 botones reparten el ancho igual */
+  border: none;
+  background: transparent;
+  padding: 7px 4px;
+  border-radius: 999px;
+  font-size: .8rem;
+  color: var(--texto-suave);
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.filtros-tiempo button.activo {
+  background: var(--texto);    /* Uso neutro/oscuro, no acento */
+  color: var(--blanco);
+}
+.filtros select {
+  font: inherit;
+  font-size: .8rem;
+  padding: 8px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: var(--blanco);
+  color: var(--texto);
+  cursor: pointer;
+}
+
+/* ============================================================
+   5. LISTA DE GASTOS
+   ============================================================ */
+.lista-card {
+  background: var(--blanco);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  overflow: hidden;            /* Recorta hijos al radio del card */
+}
+.lista-card h3 {
+  font-size: .78rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--texto-suave);
+  padding: 16px 18px 8px;
+}
+.gasto {
+  display: flex;               /* [icono] [texto] [monto] [tacho] en una fila */
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--borde);
+}
+.gasto:first-of-type { border-top: none; }
+
+/* Etiqueta cuadrada con el emoji de la categoría */
+.cat-icono {
+  width: 40px; height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+}
+.gasto-info { flex: 1; min-width: 0; }         /* Permite acortar texto largo */
+.gasto-info .descripcion {
+  font-weight: 600;
+  font-size: .92rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gasto-info .meta {
+  font-size: .78rem;
+  color: var(--texto-suave);
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+.gasto-info .meta .cat { text-transform: capitalize; }
+.gasto-monto {
+  font-weight: 700;
+  font-size: .95rem;
+  font-variant-numeric: tabular-nums;   /* Números alineados verticalmente */
+  white-space: nowrap;
+}
+
+/* Botón de eliminación (tacho de basura) de cada gasto */
+.btn-eliminar {
+  flex-shrink: 0;
+  width: 32px; height: 32px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  font-size: .95rem;
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.btn-eliminar:hover {
+  background: var(--fondo);
+  border-color: var(--borde);
+}
+
+/* Mensaje sutil cuando aún no hay registros */
+.vacio {
+  padding: 34px 18px;
+  text-align: center;
+  color: var(--texto-suave);
+  font-size: .9rem;
+  border-top: 1px solid var(--borde);
+}
+
+/* ============================================================
+   6. BOTÓN FLOTANTE "+ Añadir Gasto"
+   Círculo con símbolo + fijado en la esquina inferior derecha.
+   ============================================================ */
+.btn-anadir {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  z-index: 40;
+  width: 58px; height: 58px;
+  border: none;
+  border-radius: 50%;          /* Círculo perfecto */
+  background: var(--acento);
+  color: var(--blanco);
+  font: inherit;
+  font-size: 1.8rem;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(16, 185, 129, .4);
+  transition: background .2s ease, transform .15s ease;
+}
+.btn-anadir:hover  { background: var(--acento-hover); }
+.btn-anadir:active { transform: scale(.94); }
+/* El símbolo + se centra ópticamente */
+.btn-anadir span { transform: translateY(-2px); }
+
+/* ============================================================
+   7. MODAL "+ Añadir Gasto"
+   Oculto por defecto; se muestra con la clase .abierta
+   ============================================================ */
+.modal-fondo {
+  position: fixed;
+  inset: 0;                    /* Cubre toda la pantalla */
+  background: rgba(17, 24, 39, .45);
+  display: flex;
+  align-items: flex-end;       /* En móvil asciende desde abajo */
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  visibility: hidden;          /* Invisible pero transicionable */
+  transition: opacity .2s ease, visibility .2s ease;
+}
+.modal-fondo.abierta { opacity: 1; visibility: visible; }
+
+.modal {
+  position: relative;          /* Referencia para el botón ✕ flotante */
+  background: var(--blanco);
+  border-radius: 20px 20px 0 0;
+  width: 100%;
+  max-width: 440px;
+  padding: 22px 20px 30px;
+  transform: translateY(24px); /* Animación de entrada hacia arriba */
+  transition: transform .25s ease;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal-fondo.abierta .modal { transform: translateY(0); }
+@media (min-width: 720px) {
+  .modal-fondo { align-items: center; }        /* Centrado en escritorio */
+  .modal { border-radius: 20px; transform: scale(.96); }
+  .modal-fondo.abierta .modal { transform: scale(1); }
+}
+
+.modal h2 { font-size: 1.15rem; margin-bottom: 18px; }
+.modal-cerrar {
+  position: absolute; top: 14px; right: 16px; /* Cierre flotante */
+  border: none;
+  background: var(--fondo);
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  font-size: 1rem;
+  color: var(--texto-suave);
+  cursor: pointer;
+}
+
+/* Campos del formulario */
+.campo { margin-bottom: 14px; }
+.campo label {
+  display: block;
+  font-size: .8rem;
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: var(--texto);
+}
+.campo input, .campo select {
+  width: 100%;
+  font: inherit;
+  font-size: .92rem;
+  padding: 11px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  background: var(--fondo);
+  color: var(--texto);
+  outline: none;
+  transition: border-color .2s ease;
+}
+.campo input:focus, .campo select:focus {
+  border-color: var(--acento);          /* Foco con el acento */
+  background: var(--blanco);
+}
+
+/* Fila de dos columnas: monto/fecha y tipo/categoría */
+.fila-doble { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* Botón de confirmación del modal (también acento) */
+.btn-guardar {
+  width: 100%;
+  margin-top: 6px;
+  padding: 13px;
+  border: none;
+  border-radius: 999px;
+  background: var(--acento);
+  color: var(--blanco);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .2s ease;
+}
+.btn-guardar:hover { background: var(--acento-hover); }
+</style>
+</head>
+<body>
+
+<!-- ==================== HEADER / NAVEGACIÓN ==================== -->
+<header>
+  <nav class="nav">
+    <div class="logo">Extra</div>
+
+    <!-- Selector de vista estilo píldora -->
+    <div class="pill" id="selector-vista">
+      <button data-vista="personal" class="activo">Personal</button>
+      <button data-vista="hogar">Hogar</button>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <div class="layout">
+
+    <!-- ==================== COLUMNA IZQUIERDA: RESUMEN ==================== -->
+    <section>
+      <!-- Panel de Resumen -->
+      <div class="resumen-card">
+        <h2>Total gastado (<span id="resumen-vista">Personal</span>)</h2>
+        <!-- El saldo total lleva el color de acento -->
+        <div class="total-gastado" id="total-gastado">$0</div>
+
+        <!-- Gráfica evolutiva de Chart.js (eje Y = montos, eje X = tiempo) -->
+        <div class="marco-grafico">
+          <canvas id="grafico-gastos"></canvas>
+          <div class="grafico-vacio" id="grafico-vacio">Sin gastos en este período</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== COLUMNA DERECHA: FILTROS + LISTA ==================== -->
+    <section>
+
+      <!-- Filtros de tiempo y categoría -->
+      <div class="filtros">
+        <div class="filtros-tiempo" id="filtros-tiempo">
+          <button data-periodo="hoy">Hoy</button>
+          <button data-periodo="semana">Semana</button>
+          <button data-periodo="mes" class="activo">Mes</button>
+          <button data-periodo="anio">Año</button>
+        </div>
+        <select id="filtro-categoria">
+          <option value="">Todas las categorías</option>
+          <!-- Las 15 opciones se generan por JS para no repetir código -->
+        </select>
+      </div>
+
+      <!-- Lista de gastos (vacía al inicio, se llena dinámicamente) -->
+      <div class="lista-card" style="margin-top:14px;">
+        <h3>Movimientos</h3>
+        <div id="lista-gastos"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- ==================== BOTÓN FLOTANTE "+ AÑADIR GASTO" ==================== -->
+<button class="btn-anadir" onclick="abrirModal()" aria-label="Añadir gasto">
+  <span>+</span>
+</button>
+
+<!-- ==================== MODAL "+ AÑADIR GASTO" ==================== -->
+<div class="modal-fondo" id="modal-fondo" onclick="cerrarModalFondo(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+    <button class="modal-cerrar" onclick="cerrarModal()" aria-label="Cerrar">✕</button>
+    <h2 id="modal-titulo">Añadir Gasto</h2>
+
+    <form id="form-gasto">
+      <div class="fila-doble">
+        <div class="campo">
+          <label for="f-monto">Monto</label>
+          <input type="number" id="f-monto" step="0.01" min="0.01" placeholder="0.00" required>
+        </div>
+        <div class="campo">
+          <label for="f-fecha">Fecha</label>
+          <input type="date" id="f-fecha" required>
+        </div>
+      </div>
+
+      <div class="campo">
+        <label for="f-tipo">Tipo de gasto</label>
+        <select id="f-tipo" required>
+          <option value="personal">Personal</option>
+          <option value="hogar">Hogar</option>
+        </select>
+      </div>
+
+      <!-- Selector con las 15 categorías oficiales -->
+      <div class="campo">
+        <label for="f-categoria">Categoría</label>
+        <select id="f-categoria" required></select>
+      </div>
+
+      <!-- Descripción: vacía por defecto, sin placeholder -->
+      <div class="campo">
+        <label for="f-descripcion">Descripción</label>
+        <input type="text" id="f-descripcion" maxlength="60" required>
+      </div>
+
+      <button type="submit" class="btn-guardar">Guardar Gasto</button>
+    </form>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   DATOS Y CONFIGURACIÓN INICIAL
+   ============================================================ */
+
+// Categorías oficiales (15)
+const CATEGORIAS = [
+  "Cuentas y servicios", "Supermercado", "Comidas y bebidas",
+  "Créditos y financiación", "Deportes", "Educación", "Gaming",
+  "Indumentaria", "Mascotas", "Salud y cuidado personal",
+  "Suscripciones", "Tarjetas de crédito", "Alquiler", "Viajes", "Otros"
+];
+
+// Emojis usados como icono/etiqueta de cada categoría
+const ICONOS = {
+  "Cuentas y servicios": "🧾", "Supermercado": "🛒", "Comidas y bebidas": "🍔",
+  "Créditos y financiación": "💳", "Deportes": "⚽", "Educación": "🎓",
+  "Gaming": "🎮", "Indumentaria": "👕", "Mascotas": "🐾",
+  "Salud y cuidado personal": "💊", "Suscripciones": "📺",
+  "Tarjetas de crédito": "🏧", "Alquiler": "🏠", "Viajes": "✈️", "Otros": "📦"
+};
+
+const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+const DIAS  = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+
+// Estado (arreglo dinámico de gastos, persistido en localStorage)
+// Cada gasto: { id, monto, fecha (ISO), ts (creación), tipo, categoria, descripcion }
+let gastos    = cargarGastos();
+let vista     = "personal";       // "personal" | "hogar"
+let periodo   = "mes";            // "hoy" | "semana" | "mes" | "anio"
+let filtroCat = "";               // "" = todas las categorías
+
+/* ============================================================
+   UTILIDADES
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const hoyISO = () => new Date().toISOString().slice(0, 10);
+const fmtMoneda = n => "$" + n.toLocaleString("es-AR", { maximumFractionDigits: 2 });
+
+// Formato fecha para la lista: "12 nov"
+function fmtFecha(iso) {
+  const [y, m, d] = iso.split("-");
+  return d + " " + MESES[+m - 1].toLowerCase();
+}
+
+// Carga/guardado del arreglo dinámico (la app inicia sin registros)
+function cargarGastos() {
+  try { return JSON.parse(localStorage.getItem("extra_gastos_v2")) || []; }
+  catch { return []; }
+}
+function guardarGastos() {
+  try { localStorage.setItem("extra_gastos_v2", JSON.stringify(gastos)); } catch {}
+}
+
+// Fecha de inicio del período seleccionado (para filtrar el arreglo)
+function inicioPeriodo(p) {
+  const hoy = new Date();
+  let d = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()); // hoy 00:00
+  if (p === "semana") d.setDate(d.getDate() - 6);                    // últimos 7 días
+  if (p === "mes")    d = new Date(hoy.getFullYear(), hoy.getMonth(), 1); // 1° del mes
+  if (p === "anio")   d = new Date(hoy.getFullYear(), 0, 1);         // 1° de enero
+  // Se compensa la zona horaria para comparar solo fechas (YYYY-MM-DD)
+  const tz = d.getTimezoneOffset();
+  d.setMinutes(d.getMinutes() - tz);
+  return d.toISOString().slice(0, 10);
+}
+
+// Filtra el arreglo dinámico: vista + período + categoría
+function gastosFiltrados() {
+  const desde = inicioPeriodo(periodo);
+  return gastos.filter(g =>
+    g.tipo === vista &&
+    g.fecha >= desde &&
+    g.fecha <= hoyISO() &&
+    (!filtroCat || g.categoria === filtroCat)
+  );
+}
+
+/* ============================================================
+   GRÁFICA EVOLUTIVA CON CHART.JS (Eje X = tiempo, Eje Y = dinero)
+   ============================================================ */
+let chart = null; // Instancia única de Chart.js
+
+// Calcula etiquetas del eje X y sumas según el filtro de tiempo activo
+function construirSerie() {
+  const filtrados = gastosFiltrados();
+  const hoy = new Date();
+  let labels = [], data = [], titulo = "";
+
+  if (periodo === "hoy") {
+    // Eje X: tramos horarios del día actual (24 horas)
+    titulo = "Hoy";
+    data = new Array(24).fill(0);
+    filtrados.forEach(g => {
+      if (g.fecha === hoyISO()) {
+        const h = g.ts ? new Date(g.ts).getHours() : 12;
+        data[h] += g.monto;
+      }
+    });
+    labels = data.map((_, h) => String(h).padStart(2, "0") + " hs");
+  }
+  else if (periodo === "semana") {
+    // Eje X: los últimos 7 días transcurridos (del más viejo a hoy)
+    titulo = "Última semana";
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(hoy); d.setDate(hoy.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      labels.push(DIAS[d.getDay()] + " " + d.getDate());
+      data.push(
+        filtrados.reduce((s, g) => s + (g.fecha === iso ? g.monto : 0), 0)
+      );
+    }
+  }
+  else if (periodo === "mes") {
+    // Eje X: días transcurridos del mes en curso (1 ... hoy)
+    titulo = MESES[hoy.getMonth()];
+    for (let dia = 1; dia <= hoy.getDate(); dia++) {
+      labels.push(String(dia));
+      const iso = hoy.getFullYear() + "-" +
+                  String(hoy.getMonth() + 1).padStart(2, "0") + "-" +
+                  String(dia).padStart(2, "0");
+      data.push(
+        filtrados.reduce((s, g) => s + (g.fecha === iso ? g.monto : 0), 0)
+      );
+    }
+  }
+  else {
+    // Eje X: meses del año transcurridos (Ene ... mes actual)
+    titulo = String(hoy.getFullYear());
+    for (let mes = 0; mes <= hoy.getMonth(); mes++) {
+      labels.push(MESES[mes]);
+      const prefijo = hoy.getFullYear() + "-" + String(mes + 1).padStart(2, "0");
+      data.push(
+        filtrados.reduce((s, g) => s + (g.fecha.startsWith(prefijo) ? g.monto : 0), 0)
+      );
+    }
+  }
+  return { labels, data, titulo };
+}
+
+// Crea la gráfica una sola vez; luego solo se actualizan datos/etiquetas
+function crearGrafico() {
+  const ctx = $("grafico-gastos").getContext("2d");
+  chart = new Chart(ctx, {
+    type: "line",
+    data: { labels: [], datasets: [{
+      label: "Gastos",
+      data: [],
+      borderColor: "#10B981",            // Línea con el color de acento
+      backgroundColor: "rgba(16,185,129,.12)",
+      fill: true,                        // Relleno suave bajo la línea
+      tension: .35,                      // Curvas suaves
+      pointRadius: 3,
+      pointBackgroundColor: "#10B981",
+      borderWidth: 2,
+    }]},
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,        /* Respeta el alto del marco (.marco-grafico) */
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {                       /* Importe formateado al pasar el mouse */
+          callbacks: { label: c => " " + c.dataset.label + ": " + fmtMoneda(c.parsed.y) }
+        }
+      },
+      scales: {
+        y: {                             // Eje Y: escala de montos en dinero
+          beginAtZero: true,
+          grid: { color: "#E5E7EB", drawBorder: false },
+          ticks: {
+            color: "#6B7280",
+            font: { size: 11 },
+            callback: v => "$" + Number(v).toLocaleString("es-AR", { notation: "compact" })
+          }
+        },
+        x: {                             // Eje X: línea temporal según filtro
+          grid: { display: false },
+          ticks: { color: "#6B7280", font: { size: 11 }, maxRotation: 0, autoSkip: true }
+        }
+      }
+    }
+  });
+}
+
+// Redibuja los puntos y la línea con los datos filtrados actuales
+function actualizarGrafico() {
+  const { labels, data, titulo } = construirSerie();
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = data;
+  chart.data.datasets[0].label = titulo;
+  chart.update();                        // Animación en tiempo real, sin recargar
+  // Mensaje superpuesto si no hay ningún monto en el filtro actual
+  $("grafico-vacio").classList.toggle("visible", labels.length > 0 && data.every(v => v === 0));
+}
+
+/* ============================================================
+   RENDER PRINCIPAL (total, gráfico y lista)
+   ============================================================ */
+function render() {
+  const filtrados = gastosFiltrados();
+  const total = filtrados.reduce((s, g) => s + g.monto, 0);
+
+  // --- Total con acento ---
+  $("total-gastado").textContent = fmtMoneda(total);
+  $("resumen-vista").textContent = vista === "personal" ? "Personal" : "Hogar";
+
+  // --- Gráfica evolutiva ---
+  actualizarGrafico();
+
+  // --- Lista de gastos (ordenada de más reciente a más antiguo) ---
+  const lista = $("lista-gastos");
+  lista.innerHTML = "";
+  if (filtrados.length === 0) {
+    lista.innerHTML =
+      '<div class="vacio">Aún no hay registros. Agregá tu primer gasto con el botón +.</div>';
+    return;
+  }
+  filtrados
+    .slice()
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0) || b.fecha.localeCompare(a.fecha))
+    .forEach(g => {
+      const item = document.createElement("div");
+      item.className = "gasto";
+      item.innerHTML =
+        '<div class="cat-icono">' + (ICONOS[g.categoria] || "📦") + '</div>' +
+        '<div class="gasto-info">' +
+          '<div class="descripcion"></div>' +
+          '<div class="meta"><span class="cat">' + g.categoria + '</span><span>·</span><span>' + fmtFecha(g.fecha) + '</span></div>' +
+        '</div>' +
+        '<div class="gasto-monto">' + fmtMoneda(g.monto) + '</div>' +
+        // Botón de eliminación: remueve el objeto del arreglo dinámico
+        '<button class="btn-eliminar" data-id="' + g.id + '" title="Eliminar" aria-label="Eliminar gasto">🗑️</button>';
+      // textContent evita inyectar HTML del usuario
+      item.querySelector(".descripcion").textContent = g.descripcion;
+      lista.appendChild(item);
+    });
+}
+
+/* ============================================================
+   ELIMINACIÓN DINÁMICA (delegación de eventos en la lista)
+   ============================================================ */
+$("lista-gastos").addEventListener("click", e => {
+  const btn = e.target.closest(".btn-eliminar");
+  if (!btn) return;
+  gastos = gastos.filter(g => g.id !== btn.dataset.id); // Remueve del arreglo
+  guardarGastos();
+  render();                                            // Refresca lista + gráfica
+});
+
+/* ============================================================
+   EVENTOS: vista, filtros, modal y formulario
+   ============================================================ */
+
+// Selector Personal / Hogar: filtra y redibuja todo en tiempo real
+$("selector-vista").addEventListener("click", e => {
+  const btn = e.target.closest("button"); if (!btn) return;
+  vista = btn.dataset.vista;
+  document.querySelectorAll("#selector-vista button").forEach(b => b.classList.toggle("activo", b === btn));
+  render();
+});
+
+// Filtros de tiempo: Hoy / Semana / Mes / Año (cambian el eje X de la gráfica)
+$("filtros-tiempo").addEventListener("click", e => {
+  const btn = e.target.closest("button"); if (!btn) return;
+  periodo = btn.dataset.periodo;
+  document.querySelectorAll("#filtros-tiempo button").forEach(b => b.classList.toggle("activo", b === btn));
+  render();
+});
+
+// Filtro por categoría
+$("filtro-categoria").addEventListener("change", e => { filtroCat = e.target.value; render(); });
+
+/* --- Llenado de los <select> con las 15 categorías oficiales --- */
+function llenarCategorias() {
+  // Select del filtro (con opción "Todas" preexistente en el HTML)
+  CATEGORIAS.forEach(c => {
+    const op = document.createElement("option");
+    op.value = c; op.textContent = c;
+    $("filtro-categoria").appendChild(op);
+  });
+  // Select del modal
+  CATEGORIAS.forEach(c => {
+    const op = document.createElement("option");
+    op.value = c; op.textContent = c;
+    $("f-categoria").appendChild(op);
+  });
+}
+
+/* --- Apertura y cierre del modal --- */
+function abrirModal() {
+  $("f-fecha").value = hoyISO();              // Fecha actual del dispositivo por defecto
+  $("modal-fondo").classList.add("abierta");
+  setTimeout(() => $("f-monto").focus(), 250); // Foco al abrir
+  document.body.style.overflow = "hidden";     // Bloquea scroll de fondo
+}
+function cerrarModal() {
+  $("modal-fondo").classList.remove("abierta");
+  document.body.style.overflow = "";
+}
+// Cierra solo si el clic fue en el fondo oscuro (fuera del modal)
+function cerrarModalFondo(e) { if (e.target === $("modal-fondo")) cerrarModal(); }
+// Cierre con tecla Escape
+document.addEventListener("keydown", e => { if (e.key === "Escape") cerrarModal(); });
+
+/* --- Envío del formulario: inserta el nuevo objeto en el arreglo dinámico --- */
+$("form-gasto").addEventListener("submit", e => {
+  e.preventDefault(); // Actualiza la pantalla sin recargar la página
+  gastos.push({
+    id: Date.now() + "-" + Math.random().toString(36).slice(2, 7), // Identificador único
+    monto: parseFloat($("f-monto").value),
+    fecha: $("f-fecha").value,
+    ts: Date.now(),                       // Marca de tiempo (para el eje X de "Hoy")
+    tipo: $("f-tipo").value,
+    categoria: $("f-categoria").value,
+    descripcion: $("f-descripcion").value.trim()
+  });
+  guardarGastos();
+  e.target.reset();
+  cerrarModal();
+  render();
+});
+
+/* ============================================================
+   ARRANQUE
+   ============================================================ */
+llenarCategorias();
+crearGrafico();
+render();
+</script>
+</body>
+</html>
